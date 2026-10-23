@@ -1,0 +1,108 @@
+ "n": 200,
+  "overall_readmit_pct": 29.5,
+  "n_readmit": 59,
+  "by_diagnosis": {
+    "Heart Failure": {
+      "patients": 32.0,
+      "readmits": 21.0,
+      "patient_share": 16.0,
+      "readmit_share": 35.6,
+      "rate": 65.6
+    },
+    "Pneumonia": {
+      "patients": 41.0,
+      "readmits": 15.0,
+      "patient_share": 20.5,
+      "readmit_share": 25.4,
+      "rate": 36.6
+    },
+    "Diabetes": {
+      "patients": 34.0,
+      "readmits": 12.0,
+      "patient_share": 17.0,
+      "readmit_share": 20.3,
+      "rate": 35.3
+    },
+    "Hypertension": {
+      "patients": 43.0,
+      "readmits": 6.0,
+      "patient_share": 21.5,
+      "readmit_share": 10.2,
+      "rate": 14.0
+    },
+    "Asthma": {
+      "patients": 27.0,
+      "readmits": 4.0,
+      "patient_share": 13.5,
+      "readmit_share": 6.8,
+      "rate": 14.8
+    },
+    "Fracture": {
+      "patients": 23.0,
+      "readmits": 1.0,
+      "patient_share": 11.5,
+      "readmit_share": 1.7,
+      "rate": 4.3
+    }
+  },
+  "cv_auc": {
+    "Diagnosis only": {
+      "mean": 0.7,
+      "sd": 0.009
+    },
+    "Age + length of stay": {
+      "mean": 0.705,
+      "sd": 0.007
+    },
+    "Full model": {
+      "mean": 0.786,
+      "sd": 0.012
+    }
+  },
+  "oof_auc_seed0": 0.806,
+  "oof_auc_ci95": [
+    0.736,
+    0.869
+  ],
+  "threshold_table": [
+    {
+      "Flagged_pct": 10,
+      "Patients_flagged": 20,
+      "Readmissions_captured": 16,
+      "Captured_pct": 27.1,
+      "Precision_pct": 80.0,
+      "Lift": 2.71
+    },
+    {
+      "Flagged_pct": 20,
+      "Patients_flagged": 40,
+      "Readmissions_captured": 28,
+      "Captured_pct": 47.5,
+      "Precision_pct": 70.0,
+      "Lift": 2.37
+    },
+    {
+      "Flagged_pct": 30,
+      "Patients_flagged": 60,
+      "Readmissions_captured": 38,
+      "Captured_pct": 64.4,
+      "Precision_pct": 63.3,
+      "Lift": 2.15
+    },
+    {
+      "Flagged_pct": 40,
+      "Patients_flagged": 80,
+      "Readmissions_captured": 43,
+      "Captured_pct": 72.9,
+      "Precision_pct": 53.8,
+      "Lift": 1.82
+    }
+  ],
+  "dq_dimensions": {
+    "completeness": "17 of 585 cells missing (2.9%)",
+    "correctness": "5 duplicate records out of 65 (7.7%)",
+    "concordance": "Gender and diagnosis recorded under several spellings (for example M, male and Male; HTN and Hypertension)",
+    "plausibility": "5 impossible values and 1 discharge-before-admission error",
+    "currency": "Not measured (no timestamps showing how current the data are)"
+  }
+}
