@@ -1,0 +1,19 @@
+{
+  "forecast_2025_total": 15915,
+  "actual_2024_total": 15224,
+  "forecast_growth_vs_2024_pct": 4.5,
+  "forecast_peak": {
+    "month": "December 2025",
+    "value": 1418,
+    "upper_95": 1461
+  },
+  "forecast_trough": {
+    "month": "July 2025",
+    "value": 1234
+  },
+  "alos_last12": 5.54,
+  "beds_needed_peak_forecast": 276,
+  "beds_needed_peak_upper": 284,
+  "beds_needed_2024_peak_actual": 261,
+  "growth_2019_2024_pct": 24.3
+}
