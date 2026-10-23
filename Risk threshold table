@@ -1,0 +1,5 @@
+Flagged_pct,Patients_flagged,Readmissions_captured,Captured_pct,Precision_pct,Lift
+10,20,16,27.1,80.0,2.71
+20,40,28,47.5,70.0,2.37
+30,60,38,64.4,63.3,2.15
+40,80,43,72.9,53.8,1.82
