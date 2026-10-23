@@ -1,0 +1,28 @@
+"rows_raw": 65,
+  "missing_raw": {
+    "Age": 3,
+    "Gender": 2,
+    "SystolicBP": 4,
+    "DiastolicBP": 2,
+    "Diagnosis": 2,
+    "DischargeDate": 4
+  },
+  "exact_duplicates_raw": 4,
+  "gender_unmapped": 2,
+  "duplicates_removed": 5,
+  "duplicate_patient_ids_remaining": 0,
+  "outliers_flagged": {
+    "Age": 2,
+    "SystolicBP": 2,
+    "DiastolicBP": 1
+  },
+  "discharge_before_admission": 1,
+  "Age_median_used": 54.0,
+  "SystolicBP_median_used": 130.5,
+  "DiastolicBP_median_used": 83.0,
+  "rows_clean": 60,
+  "missing_clean": {
+    "DischargeDate": 4,
+    "LengthOfStay": 4
+  }
+}
