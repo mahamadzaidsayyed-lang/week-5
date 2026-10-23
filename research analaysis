@@ -1,0 +1,184 @@
+"""Simulated analysis linking the literature review to decision making.
+
+Scenarios (all on synthetic data):
+  A. Where is readmission concentrated? (links to Feltner et al., 2014)
+  B. Can a simple risk model help target follow-up, and how reliable is it? (links to Kansagara et al., 2011)
+  C. How many alerts should the model raise? (links to Sutton et al., 2020 on alert burden)
+  D. Which data quality dimensions do the Week 1 problems fall under? (links to Weiskopf and Weng, 2013)
+
+Run:  python research_analysis.py
+Input:  data/patients_week2.csv, data/week1_cleaning_log.json
+Output: charts/*.png, results.json, data/risk_threshold_table.csv
+Requires: numpy, pandas, scipy, matplotlib
+"""
+import json
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+import numpy as np
+import pandas as pd
+from scipy.stats import rankdata
+
+NAVY, BLUE, ORANGE, RED, GREEN, GREY = "#1F3864", "#2E75B6", "#ED7D31", "#C00000", "#548235", "#7F7F7F"
+plt.rcParams.update({"font.size": 11, "axes.spines.top": False, "axes.spines.right": False})
+df = pd.read_csv("data/patients_week2.csv")
+w1 = json.load(open("data/week1_cleaning_log.json"))
+y = df["Readmitted"].to_numpy(float)
+N = len(df)
+res = {"n": N, "overall_readmit_pct": round(y.mean() * 100, 1), "n_readmit": int(y.sum())}
+
+# ---------------------------------------------------------------- A. concentration of readmissions
+g = df.groupby("Diagnosis").agg(patients=("PatientID", "count"), readmits=("Readmitted", "sum"))
+g["patient_share"] = g["patients"] / N * 100
+g["readmit_share"] = g["readmits"] / g["readmits"].sum() * 100
+g["rate"] = g["readmits"] / g["patients"] * 100
+g = g.sort_values("readmit_share", ascending=False)
+res["by_diagnosis"] = {k: {c: round(float(v), 1) for c, v in row.items()} for k, row in g.iterrows()}
+
+fig, ax = plt.subplots(figsize=(7.6, 4.3))
+x = np.arange(len(g)); w = 0.38
+ax.bar(x - w / 2, g["patient_share"], w, color=BLUE, label="Share of all patients")
+ax.bar(x + w / 2, g["readmit_share"], w, color=ORANGE, label="Share of all readmissions")
+for i, (a, b) in enumerate(zip(g["patient_share"], g["readmit_share"])):
+    ax.text(i - w / 2, a + 0.6, f"{a:.0f}%", ha="center", fontsize=8.5)
+    ax.text(i + w / 2, b + 0.6, f"{b:.0f}%", ha="center", fontsize=8.5)
+ax.set_xticks(x); ax.set_xticklabels(g.index, rotation=20, ha="right")
+ax.set(ylabel="Percent", title="Patients versus Readmissions by Diagnosis"); ax.legend(frameon=False)
+fig.tight_layout(); fig.savefig("charts/1_readmission_concentration.png", dpi=150); plt.close(fig)
+
+# ---------------------------------------------------------------- B. risk model (logistic regression, from scratch)
+diag_levels = sorted(df["Diagnosis"].unique())[1:]          # first level is the reference
+
+
+def features(d, kind):
+    cols = []
+    if kind in ("diag", "full"):
+        cols += [(d["Diagnosis"] == lv).astype(float).to_numpy() for lv in diag_levels]
+    if kind in ("agelos", "full"):
+        cols += [d["Age"].to_numpy(float), d["LengthOfStay"].to_numpy(float)]
+    if kind == "full":
+        cols += [d["BMI"].to_numpy(float), d["SystolicBP"].to_numpy(float), d["Cholesterol"].to_numpy(float),
+                 (d["Gender"] == "Male").astype(float).to_numpy()]
+    return np.column_stack(cols)
+
+
+def fit_logit(X, yv, l2=1.0):
+    mu, sd = X.mean(0), X.std(0); sd[sd == 0] = 1
+    Z = np.column_stack([np.ones(len(X)), (X - mu) / sd])
+    pen = np.eye(Z.shape[1]) * l2; pen[0, 0] = 0
+    wv = np.zeros(Z.shape[1])
+    for _ in range(60):
+        p = 1 / (1 + np.exp(-Z @ wv))
+        grad = Z.T @ (yv - p) - pen @ wv
+        H = Z.T @ (Z * (p * (1 - p))[:, None]) + pen
+        step = np.linalg.solve(H, grad); wv += step
+        if np.linalg.norm(step) < 1e-8: break
+    return mu, sd, wv
+
+
+def predict(model, X):
+    mu, sd, wv = model
+    Z = np.column_stack([np.ones(len(X)), (X - mu) / sd])
+    return 1 / (1 + np.exp(-Z @ wv))
+
+
+def auc(yv, score):
+    r = rankdata(score); n1 = yv.sum(); n0 = len(yv) - n1
+    return float((r[yv == 1].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+
+
+def kfold_oof(kind, seed, k=5):
+    rng = np.random.default_rng(seed)
+    idx = rng.permutation(N); folds = np.array_split(idx, k)
+    oof = np.zeros(N); X = features(df, kind)
+    for f in folds:
+        tr = np.setdiff1d(idx, f)
+        oof[f] = predict(fit_logit(X[tr], y[tr]), X[f])
+    return oof
+
+
+names = {"diag": "Diagnosis only", "agelos": "Age + length of stay", "full": "Full model"}
+cv = {}
+for kind in names:
+    scores = [auc(y, kfold_oof(kind, s)) for s in range(10)]      # 10 repeats of 5-fold CV
+    cv[kind] = (float(np.mean(scores)), float(np.std(scores)))
+res["cv_auc"] = {names[k]: {"mean": round(v[0], 3), "sd": round(v[1], 3)} for k, v in cv.items()}
+
+# bootstrap interval for the full model's out-of-fold AUC (one representative CV run)
+oof = kfold_oof("full", seed=0)
+res["oof_auc_seed0"] = round(auc(y, oof), 3)
+rng = np.random.default_rng(1)
+boot = []
+for _ in range(2000):
+    b = rng.integers(0, N, N)
+    if y[b].sum() in (0, N): continue
+    boot.append(auc(y[b], oof[b]))
+res["oof_auc_ci95"] = [round(float(np.percentile(boot, 2.5)), 3), round(float(np.percentile(boot, 97.5)), 3)]
+
+fig, ax = plt.subplots(figsize=(6.6, 3.8))
+vals = [cv[k][0] for k in names]; errs = [cv[k][1] for k in names]
+ax.bar(list(names.values()), vals, yerr=errs, capsize=5, color=[GREY, BLUE, NAVY])
+ax.axhline(0.5, color=RED, ls="--", lw=1); ax.text(2.45, 0.505, "chance", color=RED, fontsize=9, ha="right")
+for i, v in enumerate(vals): ax.text(i, v + 0.03, f"{v:.2f}", ha="center", fontsize=10)
+ax.set_ylim(0.4, 1.0); ax.set(ylabel="Cross-validated AUC", title="Discrimination of Readmission Risk Models")
+fig.tight_layout(); fig.savefig("charts/2_model_auc.png", dpi=150); plt.close(fig)
+
+# ---------------------------------------------------------------- C. alert thresholds (gain curve and table)
+order = np.argsort(-oof)
+cum = np.cumsum(y[order]) / y.sum() * 100
+frac = np.arange(1, N + 1) / N * 100
+fig, ax = plt.subplots(figsize=(6.8, 4.4))
+ax.plot(frac, cum, color=NAVY, lw=2.6, label="Risk model (cross-validated)")
+ax.plot([0, 100], [0, 100], color=GREY, ls="--", label="Random selection")
+ax.set(xlabel="Share of patients flagged for follow-up (%)", ylabel="Share of readmissions captured (%)",
+       title="Gain Curve: Targeting Follow-up by Risk")
+rows = []
+for top in (10, 20, 30, 40):
+    nflag = int(round(N * top / 100)); sel = order[:nflag]
+    cap = y[sel].sum()
+    rows.append({"Flagged_pct": top, "Patients_flagged": nflag, "Readmissions_captured": int(cap),
+                 "Captured_pct": round(cap / y.sum() * 100, 1), "Precision_pct": round(cap / nflag * 100, 1),
+                 "Lift": round((cap / nflag) / y.mean(), 2)})
+tt = pd.DataFrame(rows); tt.to_csv("data/risk_threshold_table.csv", index=False)
+res["threshold_table"] = rows
+r20 = rows[1]
+ax.scatter([20], [r20["Captured_pct"]], color=ORANGE, s=70, zorder=5)
+ax.annotate(f"Flag 20% -> capture {r20['Captured_pct']:.0f}%", (20, r20["Captured_pct"]), xytext=(33, r20["Captured_pct"] - 14),
+            arrowprops=dict(arrowstyle="->", color=ORANGE), fontsize=10, color=ORANGE)
+ax.legend(frameon=False, loc="lower right")
+fig.tight_layout(); fig.savefig("charts/3_gain_curve.png", dpi=150); plt.close(fig)
+
+# ---------------------------------------------------------------- D. data quality dimensions (Week 1 evidence)
+cells_raw = w1["rows_raw"] * 9
+res["dq_dimensions"] = {
+    "completeness": f"{sum(w1['missing_raw'].values())} of {cells_raw} cells missing ({sum(w1['missing_raw'].values()) / cells_raw * 100:.1f}%)",
+    "correctness": f"{w1['duplicates_removed']} duplicate records out of {w1['rows_raw']} ({w1['duplicates_removed'] / w1['rows_raw'] * 100:.1f}%)",
+    "concordance": "Gender and diagnosis recorded under several spellings (for example M, male and Male; HTN and Hypertension)",
+    "plausibility": f"{sum(w1['outliers_flagged'].values())} impossible values and {w1['discharge_before_admission']} discharge-before-admission error",
+    "currency": "Not measured (no timestamps showing how current the data are)",
+}
+
+# ---------------------------------------------------------------- Framework diagram
+fig, ax = plt.subplots(figsize=(10, 5.6)); ax.set_xlim(0, 16); ax.set_ylim(0, 9); ax.axis("off")
+steps = [("1  DEFINE", "Decision, owner,\noutcome measure", NAVY, (0.4, 5.6)),
+         ("2  CHECK DATA", "Quality gate on the five\ndimensions", BLUE, (5.8, 5.6)),
+         ("3  ANALYSE", "Benchmark, validate,\nreport uncertainty", BLUE, (11.2, 5.6)),
+         ("4  INTERPRET", "Combine results with\nliterature and clinicians", ORANGE, (11.2, 1.9)),
+         ("5  ACT", "Decision rule, pilot,\nnamed responsibility", GREEN, (5.8, 1.9)),
+         ("6  LEARN", "Monitor KPIs, feedback,\nretrain, revise", GREEN, (0.4, 1.9))]
+for title, sub, col, (x0, y0) in steps:
+    ax.add_patch(FancyBboxPatch((x0, y0), 4.4, 2.3, boxstyle="round,pad=0.02,rounding_size=0.15", fc=col, ec="none"))
+    ax.text(x0 + 2.2, y0 + 1.6, title, ha="center", va="center", color="white", fontsize=13, fontweight="bold")
+    ax.text(x0 + 2.2, y0 + 0.75, sub, ha="center", va="center", color="white", fontsize=10.5, linespacing=1.4)
+def arrow(p, q): ax.add_patch(FancyArrowPatch(p, q, arrowstyle="-|>", mutation_scale=20, lw=2, color="#404040"))
+arrow((4.9, 6.75), (5.7, 6.75)); arrow((10.3, 6.75), (11.1, 6.75)); arrow((13.4, 5.5), (13.4, 4.3))
+arrow((11.1, 3.05), (10.3, 3.05)); arrow((5.7, 3.05), (4.9, 3.05)); arrow((2.6, 4.3), (2.6, 5.5))
+ax.text(8, 8.5, "Evidence-to-Action Decision Loop", ha="center", fontsize=15, fontweight="bold", color=NAVY)
+ax.text(8, 4.4, "Human judgement, ethics and privacy checks apply at every step", ha="center", fontsize=11, style="italic", color="#404040")
+ax.text(8, 0.8, "A failed quality gate returns the work to step 1 or 2; unexpected results trigger a review, not an automatic action", ha="center", fontsize=9.5, color=GREY)
+fig.tight_layout(); fig.savefig("charts/4_decision_framework.png", dpi=150); plt.close(fig)
+
+with open("results.json", "w") as fh:
+    json.dump(res, fh, indent=2)
+print(json.dumps(res, indent=2))
